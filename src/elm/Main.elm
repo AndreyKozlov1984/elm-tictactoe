@@ -2,7 +2,7 @@ module Main exposing (..)
 
 import Html exposing (..)
 import List
-import Html.Attributes exposing (style)
+import Html.Attributes exposing (style, value)
 import Html.Events exposing (onClick)
 import Board
 import Debug
@@ -11,6 +11,10 @@ import Debug
 type Msg
     = Click Board.Cell Player
     | Reset
+    -- form related
+    | SetPlayer1Name
+    | SetPlayer2Name
+    | SetBoardSize
 
 
 type Winner
@@ -47,12 +51,19 @@ playerO =
     , status = WaitingForOpponent
     }
 
+type alias Settings = {
+    player1Name : String,
+    player2Name : String,
+    boardSize   : Int
+}
 
 type alias Model =
     { game    : Board.Game
     , player1 : Player
     , player2 : Player
+    , settings : Settings
     }
+
 
 
 init : ( Model, Cmd Msg )
@@ -60,7 +71,12 @@ init =
     ({
         game = Board.init 3,
         player1 = playerX,
-        player2 = playerO
+        player2 = playerO,
+        settings = {
+            player1Name = "n1",
+            player2Name = "n2",
+            boardSize = 5
+        }
       }, Cmd.none)
 
 
@@ -70,8 +86,20 @@ view model =
         [ draw_field model.player1 model.game
         , draw_field model.player2 model.game
         , button [onClick (Reset) ][ text "Reset" ]
+        , draw_form model.settings
         ]
 
+draw_form settings =
+    div []
+        [ h1 [] [text "Settings:"]
+        , span [] [text "Player 1 Name"]
+        , input [value settings.player1Name, onChange SetPlayer1Name ] []
+        , span [] [text "Player 2 Name"]
+        , input [value settings.player2Name, onChange SetPlayer2Name] []
+        , span [] [text "Board Size"]
+        , input [value (toString settings.boardSize), onChange SetBoardSize] []
+        , button [onClick UpdateSettings]
+        ]
 
 draw_field : Player -> Board.Game -> Html Msg
 draw_field player game =
