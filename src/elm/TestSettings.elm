@@ -1,5 +1,7 @@
 module Main exposing (..)
 
+import Debug
+import Dialog
 import Html exposing (..)
 import List
 import Html.Attributes exposing (class, style, value)
@@ -15,9 +17,8 @@ type Msg
     | FocusAttempted
 
 type alias Model =
-    { form : Settings.SettingsForm
+    { form : Maybe Settings.SettingsForm
     , settings : Settings.Settings
-    , isDialogOpen : Bool
     }
 
 settings = 
@@ -28,9 +29,8 @@ settings =
 
 init : ( Model, Cmd Msg )
 init =
-    ({ form = Settings.loadForm settings
+    ({ form = Nothing
      , settings = settings
-     , isDialogOpen = False
      } , Cmd.none)
 
 
@@ -42,14 +42,23 @@ view model =
               , div [] [text (toString model.settings)]
               ]
         , button [onClick Edit] [text "Edit Settings"]
-        , div [] (if model.isDialogOpen then
-                     [ h1 [] [text "Embedded Form!"]
-                       , Settings.view model.form |> Html.map MsgSettings
-                     ]
-                  else
-                     []
-                 )
+        , Dialog.view (model.form |> dialogContent)
         ]
+
+dialogContent maybeForm =
+    case maybeForm of
+        Nothing -> Nothing
+        Just form -> Just (dialogConfig form)
+    
+dialogConfig form =
+    { closeMessage = Nothing
+    , containerClass = Nothing
+    , header = Just (h3 [] [text "Settings"])
+    , body = Just (Settings.view form |> Html.map MsgSettings)
+    , footer = Just (Settings.footerView form |> Html.map MsgSettings)
+    }
+
+
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -57,19 +66,21 @@ update msg model =
         FocusAttempted -> 
             (model, Cmd.none)
         Edit ->
-            case model.isDialogOpen of
-                True ->
+            case model.form of
+                Just _ ->
                     (model, Cmd.none)
-                False ->
+                Nothing ->
                     ( { model
-                            | isDialogOpen = True 
-                            , form = Settings.loadForm model.settings
+                            | form = Just (Settings.loadForm model.settings)
                       }
                     , Task.attempt (\r -> FocusAttempted) (focus "settings-focus")
                     )
         MsgSettings payload ->
             let 
-                (newModel, newCmd, newGlobalMsg) = Settings.update payload model.form
+                justForm = case model.form of
+                    Nothing -> Debug.crash "Oops"
+                    Just form -> form
+                (newModel, newCmd, newGlobalMsg) = Settings.update payload justForm
                 mappedNewCmd =  Cmd.map MsgSettings newCmd
                 handleGlobalEvent m =
                     case newGlobalMsg of
@@ -78,14 +89,14 @@ update msg model =
                         Just (Settings.Submit newSettings) ->
                             { m
                                     | settings = newSettings
-                                    , isDialogOpen = False
+                                    , form = Nothing
                             }
                         Just (Settings.Cancel) ->
                             { m
-                                  | isDialogOpen = False
+                                  | form = Nothing
                             }
             in
-                ( { model | form = newModel } |>  handleGlobalEvent, mappedNewCmd)
+                ( { model | form = Just newModel } |>  handleGlobalEvent, mappedNewCmd)
                 
 subscriptions : Model -> Sub Msg
 subscriptions model =

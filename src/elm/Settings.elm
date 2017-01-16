@@ -1,7 +1,8 @@
+-- get it working when we implicitly fix a validation
 module Settings exposing (..)
 import Html exposing (Html)
-import Html exposing (node, div, button, span, h1, label, input, text)
-import Html.Attributes exposing (id, value, class)
+import Html exposing (node, form, div, button, span, h1, label, input, text)
+import Html.Attributes exposing (id, style, value, class, classList)
 import Html.Events exposing (onFocus, onBlur, onInput, onClick)
 
 type alias Settings =
@@ -18,10 +19,13 @@ type Field
 type alias SettingsForm =
     { player1Name : String
     , player1NameErrors : List String
+    , player1NameHadFocus: Bool
     , player2Name : String
     , player2NameErrors : List String
+    , player2NameHadFocus: Bool
     , boardSize : String
     , boardSizeErrors : List String
+    , boardSizeHadFocus: Bool
     , hasErrors : Bool
     }
 
@@ -30,10 +34,13 @@ loadForm values =
     {
         player1Name = values.player1Name,
         player1NameErrors = [],
+        player1NameHadFocus = True,
         player2Name = values.player2Name,
         player2NameErrors = [],
+        player2NameHadFocus = True,
         boardSize = toString values.boardSize,
         boardSizeErrors = [],
+        boardSizeHadFocus = True,
         hasErrors = False
     }
 
@@ -73,21 +80,24 @@ update cmd model =
             )
 
         FocusOut Player1Name ->
-            ( model
-                |> liveValidatePlayer1Name
+            ( { model
+                | player1NameHadFocus = True
+              } |> liveValidate
             , Cmd.none
             , Nothing
             )
 
         FocusOut Player2Name ->
-            ( model
-                |> liveValidatePlayer2Name
+            ( { model
+                | player2NameHadFocus = True
+              } |> liveValidate
             , Cmd.none
             , Nothing
             )
         FocusOut BoardSize ->
-            (  model 
-                |> liveValidateBoardSize
+            ( { model 
+                  | boardSizeHadFocus = True
+              } |> liveValidate
             , Cmd.none
             , Nothing
             )
@@ -147,6 +157,13 @@ validatePlayer1Name model =
     , validatePlayerNamesAreDifferent model
     ] |> List.filterMap identity
 
+validatePlayer1NameIfRequired : SettingsForm -> List String
+validatePlayer1NameIfRequired model =
+    if model.player1NameHadFocus then
+        validatePlayer1Name model
+    else
+        []
+
 validatePlayer2NameMinimumLength : SettingsForm -> Maybe String
 validatePlayer2NameMinimumLength model =
     let
@@ -169,6 +186,13 @@ validatePlayer2Name model =
     , validatePlayer2NameMaximumLength model
     , validatePlayerNamesAreDifferent model
     ] |> List.filterMap identity
+
+validatePlayer2NameIfRequired : SettingsForm -> List String
+validatePlayer2NameIfRequired model =
+    if model.player2NameHadFocus then
+        validatePlayer2Name model
+    else
+        []
    
     
 validateBoardSizeNumeric : SettingsForm -> Maybe String
@@ -218,23 +242,24 @@ validateBoardSize model =
     , validateBoardSizeMaximumValue model
     ] |> List.filterMap identity
 
-liveValidatePlayer1Name model =
-    let
-        errors = validatePlayer1Name model
-    in
-        { model | player1NameErrors = errors}
+validateBoardSizeIfRequired : SettingsForm -> List String
+validateBoardSizeIfRequired model =
+    if model.boardSizeHadFocus then
+        validateBoardSize model
+    else
+        []
 
-liveValidatePlayer2Name model =
-    let
-        errors = validatePlayer2Name model
-    in
-        { model | player2NameErrors = errors}
-
-liveValidateBoardSize model =
-    let
-        errors = validateBoardSize model
-    in
-        { model | boardSizeErrors = errors}
+liveValidate model =
+    { model
+        | player1NameErrors = validatePlayer1NameIfRequired model
+        , player2NameErrors = validatePlayer2NameIfRequired model
+        , boardSizeErrors = validateBoardSizeIfRequired model
+        , hasErrors = [
+            validatePlayer1Name model,
+            validatePlayer2Name model,
+            validateBoardSize model
+        ] |> List.concat |> List.isEmpty |> not
+    }
 
 validate model =
     {  model 
@@ -255,34 +280,69 @@ modelFromForm form =
     , boardSize = String.toInt form.boardSize |> Result.withDefault 0
     }
 
+drawError : String -> Html Msg
 drawError error =
-    div [] [text ("Error: " ++ toString error)]
+    div [] [text (error)]
 
 view : SettingsForm -> Html Msg
 view model =
-    div []
-        [ h1 [] [text "Settings"]
-        , div [class "form-group"]
-              [ label [] [text "Player1 Name"]
-              , input [ id "settings-focus"
-                      , class "form-input"
-                      , onFocus (FocusIn Player1Name)
-                      , onBlur (FocusOut Player1Name)
-                      , onInput (Change Player1Name)
-                      , value model.player1Name
-                      ] []
-              
-              ]
-        , div [] (model.player1NameErrors |> List.map drawError)
-        , label [] [text "Player2 Name"]
-        , input [onFocus (FocusIn Player1Name), onBlur (FocusOut Player2Name), onInput (Change Player2Name), value model.player2Name] []
-        , div [] (model.player2NameErrors |> List.map drawError)
-        , label [] [text "Board Size"]
-        , input [onFocus (FocusIn BoardSize),  onBlur (FocusOut BoardSize), onInput (Change BoardSize), value model.boardSize] []
-        , div [] (model.boardSizeErrors |> List.map drawError)
-        , div [class "well"]
-              [ button [class "btn btn-default", onClick TryCancel] [text "Cancel"]
-              , button [class "btn btn-success", onClick TrySubmit] [text "Submit"]
-              ]
+    div
+        [ style []
+        , class "form-horizontal"
         ]
-     
+        [ field
+            { label = "Player 1 Name"
+            , id = Player1Name
+            , value = model.player1Name
+            , errors = model.player1NameErrors
+            }
+        , field
+            { label = "Player 2 Name"
+            , id = Player2Name
+            , value = model.player2Name
+            , errors = model.player2NameErrors
+            }
+        , field
+            { label = "Board Size"
+            , id = BoardSize
+            , value = model.boardSize
+            , errors = model.boardSizeErrors
+            }
+        ]
+
+footerView model =
+    div [class "well"]
+        [ button [class "btn btn-default", onClick TryCancel] [text "Cancel"]
+        , button [class "btn btn-success", onClick TrySubmit] [text "Submit"]
+        ]
+
+field options =
+    div [ classList
+            [ ("form-group", True)
+            , ("has-error", options.errors |> List.isEmpty |> not)
+            ]
+        ]
+        [ label [class "col-sm-4 control-label"] [text options.label]
+        , div 
+            [ class "col-sm-8" ] 
+            [ input
+                [ id "settings-focus"
+                , class "form-control"
+                , onFocus (FocusIn options.id)
+                , onBlur (FocusOut options.id)
+                , onInput (Change options.id)
+                , value options.value
+                ]
+                []
+            , div
+                [ class "help-block"
+                , style 
+                    [ ("min-height", "20px")
+                    , ("margin-bottom", "0px")
+                    , ("margin-top", "0px")
+                    ] 
+                ] 
+                (options.errors |> List.map drawError)
+            ]
+        ]
+    

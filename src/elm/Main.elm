@@ -7,14 +7,17 @@ import Html.Events exposing (onClick)
 import Board
 import Debug
 
+import Dialog
+import Dom exposing (focus)
+import Settings
+import Task
 
 type Msg
     = Click Board.Cell Player
     | Reset
-    -- form related
-    | SetPlayer1Name
-    | SetPlayer2Name
-    | SetBoardSize
+    | MsgSettings Settings.Msg
+    | EditSettings
+    | EditSettingsFocusAttempted
 
 
 type Winner
@@ -62,44 +65,76 @@ type alias Model =
     , player1 : Player
     , player2 : Player
     , settings : Settings
+    , settingsForm : Maybe Settings.SettingsForm
     }
 
 
 
 init : ( Model, Cmd Msg )
 init =
-    ({
-        game = Board.init 3,
-        player1 = playerX,
-        player2 = playerO,
-        settings = {
-            player1Name = "n1",
-            player2Name = "n2",
-            boardSize = 5
+    let
+        settings = 
+            { player1Name = "Player1"
+            , player2Name = "Player2"
+            , boardSize = 3
+            }
+    in
+        ( initializeFromSettings settings, Cmd.none )
+
+initializeFromSettings : Settings -> Model
+initializeFromSettings settings =
+    { game = Board.init settings.boardSize
+    , player1 =
+        { name = settings.player1Name
+        , side = Board.X
+        , error = Nothing
+        , status = TakingTurn
         }
-      }, Cmd.none)
+    , player2 =
+        { name = settings.player2Name
+        , side = Board.O
+        , error = Nothing
+        , status = WaitingForOpponent
+        }
+    , settings = settings
+    , settingsForm = Nothing
+    }
 
-
+applySettings : Settings -> Model -> Model
+applySettings settings model =
+    let
+        setName name player =
+            { player | name = name }
+        newPlayer1 = model.player1 |> setName settings.player1Name
+        newPlayer2 = model.player2 |> setName settings.player2Name
+    in
+        { model |
+            player1 = newPlayer1,
+            player2 = newPlayer2
+        }
+        
 view : Model -> Html Msg
 view model =
     div []
         [ draw_field model.player1 model.game
         , draw_field model.player2 model.game
         , button [onClick (Reset) ][ text "Reset" ]
-        , draw_form model.settings
+        , button [onClick EditSettings] [text "Edit Settings"]
+        , Dialog.view (model.settingsForm |> dialogContent)
         ]
 
-draw_form settings =
-    div []
-        [ h1 [] [text "Settings:"]
-        , span [] [text "Player 1 Name"]
-        , input [value settings.player1Name, onChange SetPlayer1Name ] []
-        , span [] [text "Player 2 Name"]
-        , input [value settings.player2Name, onChange SetPlayer2Name] []
-        , span [] [text "Board Size"]
-        , input [value (toString settings.boardSize), onChange SetBoardSize] []
-        , button [onClick UpdateSettings]
-        ]
+dialogContent maybeForm =
+    case maybeForm of
+        Nothing -> Nothing
+        Just form -> Just (dialogConfig form)
+    
+dialogConfig form =
+    { closeMessage = Nothing
+    , containerClass = Nothing
+    , header = Just (h3 [] [text "Settings"])
+    , body = Just (Settings.view form |> Html.map MsgSettings)
+    , footer = Just (Settings.footerView form |> Html.map MsgSettings)
+    }
 
 draw_field : Player -> Board.Game -> Html Msg
 draw_field player game =
@@ -213,7 +248,41 @@ update msg model =
             in
                 (new_model, Cmd.none)
         Reset ->
-            init
+            ( initializeFromSettings model.settings, Cmd.none )
+        EditSettingsFocusAttempted -> 
+            ( model, Cmd.none )
+        EditSettings ->
+            case model.settingsForm of
+                Just _ ->
+                    (model, Cmd.none)
+                Nothing ->
+                    ( { model
+                            | settingsForm = Just (Settings.loadForm model.settings)
+                      }
+                    , Task.attempt (\r -> EditSettingsFocusAttempted) (focus "settings-focus")
+                    )
+        MsgSettings payload ->
+            let 
+                justForm = case model.settingsForm of
+                    Nothing -> Debug.crash "Oops"
+                    Just form -> form
+                (newModel, newCmd, newGlobalMsg) = Settings.update payload justForm
+                mappedNewCmd =  Cmd.map MsgSettings newCmd
+                handleGlobalEvent m =
+                    case newGlobalMsg of
+                        Nothing ->
+                            m
+                        Just (Settings.Submit newSettings) ->
+                            { m
+                                    | settings = newSettings
+                                    , settingsForm = Nothing
+                            } |> applySettings newSettings
+                        Just (Settings.Cancel) ->
+                            { m
+                                  | settingsForm = Nothing
+                            }
+            in
+                ( { model | settingsForm = Just newModel } |>  handleGlobalEvent, mappedNewCmd)
 
 
 clear_or_set_error_on_player : Player -> Maybe String -> Model -> Model
